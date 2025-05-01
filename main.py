@@ -67,6 +67,8 @@ screen_height = root.winfo_screenheight()
 newy = screen_height
 newx = screen_width
 
+dots = []
+
 scale = 0.5
 
 with mp_hands.Hands(min_detection_confidence=0.5, min_tracking_confidence=0.5) as hands:
@@ -100,15 +102,25 @@ with mp_hands.Hands(min_detection_confidence=0.5, min_tracking_confidence=0.5) a
                 indexx, indexy = int(indexlm.x*w), int(indexlm.y*h)
 
                 wristlm = hand.landmark[9]
+                
 
                 print(extend_states)
                 if check_extend(extend_states, [1,1,1,1,1]):
-                    newx, newy = wristlm.x*screen_width, wristlm.y*screen_height
+                    newx, newy = int(wristlm.x*screen_width), int(wristlm.y*screen_height)
 
-                if check_extend(extend_states, [1,1,0,0,0]):
-                    cv2.line(frame, (thumbx, thumby), (indexx, indexy), (0,0,255), 9)
+                elif check_extend(extend_states, [1,1,0,0,0]):
+                    cv2.line(frame, (thumbx, thumby), (indexx, indexy), (255,0,0), 2)
                     scale = math.sqrt(math.pow(thumbx-indexx, 2) + math.pow(thumby-indexy, 2)) / 300
-                    
+                elif check_extend(extend_states, [0,1,0,0,0]):
+                    dots.append((indexx, indexy))
+                    for i, d in enumerate(dots[::-1]):
+                        cv2.circle(frame, d, 2, (255,0,0), 2)
+                        if i != 0:
+                            cv2.line(frame, dots[::-1][i-1], dots[::-1][i], (255,0,0), 2)
+                        # if i >= 100:
+                            # break
+                        
+
 
         #revert back to BGR
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
@@ -119,7 +131,7 @@ with mp_hands.Hands(min_detection_confidence=0.5, min_tracking_confidence=0.5) a
 
         # Move the window to the specified position
    
-        cv2.moveWindow("image", int(newx), int(newy))  # Move to x=100, y=200
+        cv2.moveWindow("image", newx, newy)  # Move to x=100, y=200
 
         #wait 10ms for a key press, if its q then exit
         if cv2.waitKey(10) == ord("q"):
