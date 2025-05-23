@@ -71,6 +71,8 @@ dots = []
 
 scale = 0.5
 
+register = False
+
 with mp_hands.Hands(min_detection_confidence=0.5, min_tracking_confidence=0.5) as hands:
 
     while cap.isOpened():
@@ -108,33 +110,36 @@ with mp_hands.Hands(min_detection_confidence=0.5, min_tracking_confidence=0.5) a
                 if check_extend(extend_states, [1,1,1,1,1]):
                     newx, newy = int(wristlm.x*screen_width), int(wristlm.y*screen_height)
 
-                elif check_extend(extend_states, [1,1,0,0,0]):
+                elif check_extend(extend_states, [1,1,0,0,0]) and register:
                     cv2.line(frame, (thumbx, thumby), (indexx, indexy), (255,0,0), 2)
                     scale = math.sqrt(math.pow(thumbx-indexx, 2) + math.pow(thumby-indexy, 2)) / 300
-                elif check_extend(extend_states, [0,1,0,0,0]):
+                elif check_extend(extend_states, [0,1,0,0,0]) and register:
                     dots.append((indexx, indexy))
                     for i, d in enumerate(dots[::-1]):
                         cv2.circle(frame, d, 2, (255,0,0), 2)
                         if i != 0:
                             cv2.line(frame, dots[::-1][i-1], dots[::-1][i], (255,0,0), 2)
-                        # if i >= 100:
-                            # break
+                        if i >= 25:
+                            break
                         
 
 
         #revert back to BGR
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        frame2 = frame
 
-        frame2 = rescale_frame(frame, scale)
+        if register:
+            frame2 = rescale_frame(frame, scale)
         #display results
         cv2.imshow("image", frame2)
 
+        if register: cv2.moveWindow("image", newx, newy)  # Move to x=100, y=200
         # Move the window to the specified position
    
-        cv2.moveWindow("image", newx, newy)  # Move to x=100, y=200
-
+        if cv2.waitKey(1) == ord("a"):
+            register = not register
         #wait 10ms for a key press, if its q then exit
-        if cv2.waitKey(10) == ord("q"):
+        if cv2.waitKey(1) == ord("q"):
             break
 
 cap.release()
