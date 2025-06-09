@@ -30,12 +30,6 @@ class Hand(IntEnum):
     PINKY_DIP = 19
     PINKY_TIP  = 20
 
-def rescale_frame(frame, scale):
-    width = int(frame.shape[1] * scale)
-    height = int(frame.shape[0] * scale)
-    dim = (width, height)
-    return cv2.resize(frame, dim, interpolation = cv2.INTER_AREA)
-
 def extend_state(hand):
     finger_tips = [int(Hand.INDEX_FINGER_TIP), int(Hand.MIDDLE_FINGER_TIP), int(Hand.RING_FINGER_TIP), int(Hand.PINKY_TIP)]
     finger_states = [0, 0, 0, 0, 0]
@@ -51,6 +45,41 @@ def check_extend(states, checks):
         if state != checks[i]: return False
     return True
 
+projection_matrix = np.array([
+    [1,0,0],
+    [0,1,0],
+    [0,0,0]
+])
+
+tetrahedron = np.array([
+    [0,0,0],
+    [0,1,1],
+    [1,0,1],
+    [1,1,1]
+])
+tetrahedron_connections = np.array([
+    [0, 1],
+    [0, 2],
+    [1, 2],
+    [0, 3],
+    [1, 3],
+    [2, 3]
+])
+
+cube = np.array([
+    [-1, -1, 1],
+    [1, -1, 1],
+    [1, 1, 1],
+    [-1, 1, 1],
+    [-1,-1,-1],
+    [1,-1,-1],
+    [1,1,-1],
+    [-1,1,-1]
+])
+
+
+def connect_points(i, j, points, frame):
+    cv2.line(frame, (int(points[i][0]), int(points[i][1])), (int(points[j][0]), int(points[j][1])), (255,0,0), 2)
 
 mp_drawing = mp.solutions.drawing_utils #render hand landmarks
 mp_hands = mp.solutions.hands
@@ -61,42 +90,59 @@ cap = cv2.VideoCapture(0)
 #set boundaries
 cap.set(3,640)
 cap.set(4,640)
-
+circle_pos = (320, 240)
 screen_width = root.winfo_screenwidth()  
 screen_height = root.winfo_screenheight()
-newy = screen_height
-newx = screen_width
+
 
 dots = []
 
-scale = 0.5
+scale = 100
 
 register = False
+
+angle = 0
+
+shape = cube
+projected_points = [
+    [n, n] for n in range(len(shape))
+]
 
 with mp_hands.Hands(min_detection_confidence=0.5, min_tracking_confidence=0.5) as hands:
 
     while cap.isOpened():
-
         #capture frame by frame in BGR color
         re, frame = cap.read()
-
         #convert to RGB for mediapipe
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
         #flip the frame
         frame = cv2.flip(frame, 1)
-
         #mp processes frame
         results = hands.process(frame)
-
         h,w,c = frame.shape
+
+        rotation_z = np.array([
+            [math.cos(angle), -math.sin(angle), 0],
+            [math.sin(angle), math.cos(angle), 0],
+            [0, 0, 1]
+        ])
+
+        rotation_y = np.array([
+            [math.cos(angle), 0, math.sin(angle)],
+            [0, 1, 0],
+            [-math.sin(angle), 0, math.cos(angle)],
+        ])
+        rotation_x = np.array([
+            [1, 0, 0],
+            [0, math.cos(angle), -math.sin(angle)],
+            [0, math.sin(angle), math.cos(angle)]
+        ])
 
         #draw landmarks on frame
         if results.multi_hand_landmarks:
             for hand in results.multi_hand_landmarks:
                 mp_drawing.draw_landmarks(frame, hand, mp_hands.HAND_CONNECTIONS)
                 extend_states = extend_state(hand)
-
                 thumblm = hand.landmark[int(Hand.THUMB_TIP)]
                 thumbx, thumby= int(thumblm.x*w), int(thumblm.y*h)
 
@@ -104,42 +150,54 @@ with mp_hands.Hands(min_detection_confidence=0.5, min_tracking_confidence=0.5) a
                 indexx, indexy = int(indexlm.x*w), int(indexlm.y*h)
 
                 wristlm = hand.landmark[9]
-                
 
                 print(extend_states)
-                if check_extend(extend_states, [1,1,1,1,1]):
-                    newx, newy = int(wristlm.x*screen_width), int(wristlm.y*screen_height)
-
-                elif check_extend(extend_states, [1,1,0,0,0]) and register:
+                if check_extend(extend_states, [1,1,1,1,1]): angle+=0.05
+                if check_extend(extend_states, [0,0,0,0,0]): angle-=0.05
+                elif check_extend(extend_states, [1,1,0,0,0]):
                     cv2.line(frame, (thumbx, thumby), (indexx, indexy), (255,0,0), 2)
-                    scale = math.sqrt(math.pow(thumbx-indexx, 2) + math.pow(thumby-indexy, 2)) / 300
-                elif check_extend(extend_states, [0,1,0,0,0]) and register:
-                    dots.append((indexx, indexy))
-                    for i, d in enumerate(dots[::-1]):
-                        cv2.circle(frame, d, 2, (255,0,0), 2)
-                        if i != 0:
-                            cv2.line(frame, dots[::-1][i-1], dots[::-1][i], (255,0,0), 2)
-                        if i >= 25:
-                            break
-                        
+                    scale = math.sqrt(math.pow(thumbx-indexx, 2) + math.pow(thumby-indexy, 2))
+                    angle+=0.05
+        
+        i=0
+        for point in shape:
+            rotated2d = np.dot(rotation_z, point.reshape((3,1)))
+            rotated2d = np.dot(rotation_y, rotated2d)
+            rotated2d = np.dot(rotation_x, rotated2d)
 
+            projected2d = np.dot(projection_matrix, rotated2d)
+
+            x = int(projected2d[0][0] * scale) + circle_pos[0]
+            y = int(projected2d[1][0] * scale) + circle_pos[1]
+            dot = (int(x),int(y))
+            projected_points[i] = [x,y]
+            cv2.circle(frame, dot, 2, (255,0,0), 2)
+            i+=1
+        if shape.all() == tetrahedron.all():
+            for i,j in tetrahedron_connections:
+                connect_points(i, j, projected_points, frame)
+        elif shape.all() == cube.all():
+            for p in range(4):
+                connect_points(p, (p+1) % 4, projected_points, frame)
+                connect_points(p+4, ((p+1) % 4) + 4, projected_points, frame)
+                connect_points(p, (p+4), projected_points, frame)
 
         #revert back to BGR
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        frame2 = frame
-
-        if register:
-            frame2 = rescale_frame(frame, scale)
-        #display results
-        cv2.imshow("image", frame2)
-
-        if register: cv2.moveWindow("image", newx, newy)  # Move to x=100, y=200
-        # Move the window to the specified position
-   
-        if cv2.waitKey(1) == ord("a"):
-            register = not register
+        #display resultsq
+        cv2.imshow("image", frame)
         #wait 10ms for a key press, if its q then exit
-        if cv2.waitKey(1) == ord("q"):
+        if cv2.waitKey(10) == ord("1"):
+            shape = cube
+            projected_points = [
+                [n, n] for n in range(len(cube))
+            ]
+        if cv2.waitKey(10) == ord("2"):
+            shape = tetrahedron
+            projected_points = [
+                [n, n] for n in range(len(tetrahedron))
+            ]
+        if cv2.waitKey(10) == ord("q"):
             break
 
 cap.release()
